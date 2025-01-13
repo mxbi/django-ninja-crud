@@ -48,6 +48,11 @@ class CreateView(APIView):
             (applied in reverse order). Defaults to `None`.
         operation_kwargs (dict[str, Any], optional): Additional operation
             keyword arguments. Defaults to `None`.
+        deferred_fields (list[str], optional): Any fields which should not be set until
+            after the model is saved (e.g. if the field is a setter which internally sets 
+            a ManyToManyField). Note that save() is not called after the deferred fields
+            are set, so if required this needs to be done in the setter.
+            Defaults to `None`.
 
     Example:
     ```python
@@ -100,6 +105,7 @@ class CreateView(APIView):
         post_save: Optional[ModelHook] = None,
         decorators: Optional[list[Decorator]] = None,
         operation_kwargs: Optional[dict[str, Any]] = None,
+        deferred_fields: Optional[list[str]] = None,
     ) -> None:
         super().__init__(
             name=name,
@@ -117,6 +123,7 @@ class CreateView(APIView):
         self.init_model = init_model or self._default_init_model
         self.pre_save = pre_save or (lambda request, instance: instance.full_clean())
         self.post_save = post_save or (lambda request, instance: None)
+        self.deferred_fields = deferred_fields or []
 
     def handler(
         self,
@@ -127,6 +134,7 @@ class CreateView(APIView):
         instance = self.init_model(request, path_parameters)
 
         m2m_fields_to_set = []
+        deferred_fields_to_set = []
         for field, value in request_body.model_dump().items():
             try:
                 is_m2m_field = isinstance(instance._meta.get_field(field), ManyToManyField)
@@ -135,6 +143,8 @@ class CreateView(APIView):
             
             if is_m2m_field:
                 m2m_fields_to_set.append((field, value))
+            elif field in self.deferred_fields:
+                deferred_fields_to_set.append((field, value))
             else:
                 setattr(instance, field, value)
 
@@ -145,6 +155,8 @@ class CreateView(APIView):
         for field, value in m2m_fields_to_set:
             getattr(instance, field).set(value)
 
+        for field, value in deferred_fields_to_set:
+            setattr(instance, field, value)
         return instance
 
     def _update_handler_annotations(
