@@ -2,6 +2,7 @@ from types import FunctionType
 from typing import Annotated, Any, Callable, Optional, Union, cast
 
 from django.db.models import ManyToManyField, Model
+from django.core.exceptions import FieldDoesNotExist
 from django.http import HttpRequest
 from ninja.params.functions import Body, Path
 from pydantic import BaseModel
@@ -127,7 +128,12 @@ class CreateView(APIView):
 
         m2m_fields_to_set = []
         for field, value in request_body.model_dump().items():
-            if isinstance(instance._meta.get_field(field), ManyToManyField):
+            try:
+                is_m2m_field = isinstance(instance._meta.get_field(field), ManyToManyField)
+            except FieldDoesNotExist:
+                is_m2m_field = False
+            
+            if is_m2m_field:
                 m2m_fields_to_set.append((field, value))
             else:
                 setattr(instance, field, value)
